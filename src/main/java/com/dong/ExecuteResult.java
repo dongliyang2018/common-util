@@ -19,15 +19,23 @@ public class ExecuteResult implements Serializable {
 
     /** 执行结果编码 */
     private int exitCode;
-    /** 输出内容 */
-    private String executeOutput;
+    /** 正常输出内容 */
+    private String output;
+    /** 错误输出内容 */
+    private String error;
 
     public ExecuteResult() { }
 
-    public ExecuteResult(int exitCode, String executeOutput) {
-        checkExitCode(exitCode);
+    public ExecuteResult(int exitCode) {
         this.exitCode = exitCode;
-        this.executeOutput = executeOutput;
+        this.output = null;
+        this.error = null;
+    }
+
+    public ExecuteResult(int exitCode, String output, String error) {
+        this.exitCode = exitCode;
+        this.output = output;
+        this.error = error;
     }
 
     public int getExitCode() {
@@ -39,20 +47,28 @@ public class ExecuteResult implements Serializable {
         this.exitCode = exitCode;
     }
 
-    public String getExecuteOutput() {
-        return executeOutput;
+    public String getOutput() {
+        return output;
     }
 
-    public void setExecuteOutput(String executeOutput) {
-        this.executeOutput = executeOutput;
+    public void setOutput(String output) {
+        this.output = output;
     }
 
+    public String getError() {
+        return error;
+    }
+
+    public void setError(String error) {
+        this.error = error;
+    }
 
     @Override
     public String toString() {
         return "ExecuteResult{" +
                 "exitCode=" + exitCode +
-                ", executeOutput='" + executeOutput + '\'' +
+                ", output='" + output + '\'' +
+                ", error='" + error + '\'' +
                 '}';
     }
 

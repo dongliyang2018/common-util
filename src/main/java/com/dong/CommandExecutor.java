@@ -29,25 +29,20 @@ public abstract class CommandExecutor {
      * @return
      */
     public static ExecuteResult executeCommand(String command, long timeout,String charsetName) {
-        logger.debug("invoke executeCommand,command:{},timeout:{},charsetName:{}",command,timeout,charsetName);
         if (StringUtil.isNullEmpty(command)) {
             throw new IllegalArgumentException("command cannot be null or empty");
         }
         if (StringUtil.isNullEmpty(charsetName)) {
             throw new IllegalArgumentException("charsetName cannot be null or empty");
         }
-        Process process = null;
-        ExecuteResult executeResult = null;
         try {
-            process = Runtime.getRuntime().exec(command);
-            executeResult = doExec(process, command, timeout,charsetName);
+            Process process = Runtime.getRuntime().exec(command);
+            return doExec(process, command, timeout,charsetName);
         } catch (Throwable e) {
             logger.error("an exception has appeared when exec command:{},timeout:{},charsetName:{},exception message:{} ", command,
                     timeout,charsetName,e.getMessage());
-            executeResult = new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         }
-        logger.debug("executeResult:{}",executeResult);
-        return executeResult;
     }
 
     /**
@@ -58,28 +53,24 @@ public abstract class CommandExecutor {
      * @return
      */
     public static ExecuteResult executeCommand(String[] commandArray,long timeout,String charsetName) {
-        logger.debug("invoke executeCommand,command:{},timeout:{},charsetName:{}",Arrays.toString(commandArray),timeout,charsetName);
         if (commandArray == null || commandArray.length == 0) {
             throw new IllegalArgumentException("commandArray cannot be null or empty");
         }
         if (StringUtil.isNullEmpty(charsetName)) {
             throw new IllegalArgumentException("charsetName cannot be null or empty");
         }
-        Process process = null;
-        ExecuteResult executeResult = null;
         try {
-            process = Runtime.getRuntime().exec(commandArray);
-            executeResult = doExec(process, Arrays.toString(commandArray), timeout,charsetName);
+            Process process = Runtime.getRuntime().exec(commandArray);
+            return doExec(process, Arrays.toString(commandArray), timeout,charsetName);
         } catch (IOException e) {
             logger.error("an exception has appeared when exec command:{},timeout:{},charsetName:{},exception message:{} ",
                     Arrays.toString(commandArray), timeout,charsetName,e.getMessage());
-            executeResult = new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         }
-        logger.debug("executeResult:{}",executeResult);
-        return executeResult;
     }
 
     private static ExecuteResult doExec(final Process process, final String command,final long timeout,String charsetName) {
+        logger.debug("invoke doExec,command:{},timeout:{},charsetName:{}",command,timeout,charsetName);
         InputStream inputStream = null;
         InputStream errorStream = null;
         StreamReceiver outputStreamReceiver = null;
@@ -114,23 +105,24 @@ public abstract class CommandExecutor {
             } else {
                 exitCode = executeFuture.get(timeout, TimeUnit.MILLISECONDS);
             }
-            return new ExecuteResult(exitCode, outputStreamReceiver.getContent() + errorStreamReceiver.getContent());
-
+            ExecuteResult executeResult = new ExecuteResult(exitCode, outputStreamReceiver.getContent(),errorStreamReceiver.getContent());
+            logger.debug("The command {" + command + "} execute finished. executeResult:" + executeResult);
+            return executeResult;
         } catch (IOException e) {
             logger.error("The command {" + command + "} execute failed,exception message:" + e.getMessage(),e);
-            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         } catch (TimeoutException  e) {
             logger.error("The command {"  + command + "} timeout. " + e.getMessage(),e);
-            return new ExecuteResult(ExecuteResult.ExitCode.TIMEOUT, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.TIMEOUT);
         } catch (ExecutionException e) {
             logger.error( "The command {" + command + "} did not complete due to an execution error.", e);
-            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         } catch (InterruptedException e) {
             logger.error( "The command {" + command + "} did not complete due to an interrupted error.", e);
-            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         } catch (Exception e) {
             logger.error( "The command {" + command + "} did not complete due to an error.", e);
-            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL);
         } finally {
             if(executeFuture != null) {
                 try {
