@@ -57,9 +57,9 @@ public class ExecuteResult implements Serializable {
     }
 
     private void checkExitCode(int exitCode) throws IllegalArgumentException {
-        if (!(ExitCode.SUCCESS == exitCode || ExitCode.FAIL == exitCode || ExitCode.TIME_OUT == exitCode)) {
+        if (!(ExitCode.SUCCESS == exitCode || ExitCode.FAIL == exitCode || ExitCode.TIMEOUT == exitCode)) {
             throw  new IllegalArgumentException("Incorrect value of exitCode,The allowed values are:" +
-                    Arrays.asList(ExitCode.SUCCESS,ExitCode.FAIL,ExitCode.TIME_OUT) + ",but the current value is:" + exitCode);
+                    Arrays.asList(ExitCode.SUCCESS,ExitCode.FAIL,ExitCode.TIMEOUT) + ",but the current value is:" + exitCode);
         }
     }
 
@@ -72,6 +72,6 @@ public class ExecuteResult implements Serializable {
         /** 失败 */
         int FAIL = 1;
         /** 超时 */
-        int TIME_OUT = -1;
+        int TIMEOUT = -1;
     }
 }

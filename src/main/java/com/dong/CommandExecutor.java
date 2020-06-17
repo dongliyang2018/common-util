@@ -1,10 +1,13 @@
 package com.dong;
 
 import com.dong.util.StringUtil;
-import com.dong.util.SystemUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
 import java.util.concurrent.*;
 
 /**
@@ -14,88 +17,156 @@ import java.util.concurrent.*;
  */
 public abstract class CommandExecutor {
 
-    private final static Logger logger = LoggerFactory.getLogger(CommandExecutor.class);
+    private static final Logger logger = LoggerFactory.getLogger(CommandExecutor.class);
+
+    private static final ExecutorService processPool = Executors.newCachedThreadPool();
 
     /**
-     * 执行命令
+     * 执行命令，返回执行结果
      * @param command 命令
      * @param timeout 超时时间，毫秒值。如果小于等于0，则一直等待
+     * @param charsetName 获取执行命令后的输出时使用的字符编码
      * @return
      */
-    public static ExecuteResult executeCommand(String command, long timeout) {
-        logger.debug("invoke executeCommand,command:{},timeout:{}",command,timeout);
+    public static ExecuteResult executeCommand(String command, long timeout,String charsetName) {
+        logger.debug("invoke executeCommand,command:{},timeout:{},charsetName:{}",command,timeout,charsetName);
         if (StringUtil.isNullEmpty(command)) {
             throw new IllegalArgumentException("command cannot be null or empty");
         }
-
-        return doExecute(command, timeout);
+        if (StringUtil.isNullEmpty(charsetName)) {
+            throw new IllegalArgumentException("charsetName cannot be null or empty");
+        }
+        Process process = null;
+        ExecuteResult executeResult = null;
+        try {
+            process = Runtime.getRuntime().exec(command);
+            executeResult = doExec(process, command, timeout,charsetName);
+        } catch (Throwable e) {
+            logger.error("an exception has appeared when exec command:{},timeout:{},charsetName:{},exception message:{} ", command,
+                    timeout,charsetName,e.getMessage());
+            executeResult = new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+        }
+        logger.debug("executeResult:{}",executeResult);
+        return executeResult;
     }
 
-    private static ExecuteResult doExecute(String command, long timeout) {
+    /**
+     * 执行命令，返回执行结果
+     * @param commandArray 命令数组
+     * @param timeout 超时时间，毫秒值。如果小于等于0，则一直等待
+     * @param charsetName 获取执行命令后的输出时使用的字符编码
+     * @return
+     */
+    public static ExecuteResult executeCommand(String[] commandArray,long timeout,String charsetName) {
+        logger.debug("invoke executeCommand,command:{},timeout:{},charsetName:{}",Arrays.toString(commandArray),timeout,charsetName);
+        if (commandArray == null || commandArray.length == 0) {
+            throw new IllegalArgumentException("commandArray cannot be null or empty");
+        }
+        if (StringUtil.isNullEmpty(charsetName)) {
+            throw new IllegalArgumentException("charsetName cannot be null or empty");
+        }
         Process process = null;
-        String charsetName = null;
+        ExecuteResult executeResult = null;
+        try {
+            process = Runtime.getRuntime().exec(commandArray);
+            executeResult = doExec(process, Arrays.toString(commandArray), timeout,charsetName);
+        } catch (IOException e) {
+            logger.error("an exception has appeared when exec command:{},timeout:{},charsetName:{},exception message:{} ",
+                    Arrays.toString(commandArray), timeout,charsetName,e.getMessage());
+            executeResult = new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+        }
+        logger.debug("executeResult:{}",executeResult);
+        return executeResult;
+    }
+
+    private static ExecuteResult doExec(final Process process, final String command,final long timeout,String charsetName) {
+        InputStream inputStream = null;
+        InputStream errorStream = null;
+        StreamReceiver outputStreamReceiver = null;
+        StreamReceiver errorStreamReceiver = null;
+        Future<Integer> executeFuture = null;
 
         try {
-            if (SystemUtil.isRunOnWindows()) {
-                /*
-                特别注意: Runtime.getRuntime().exec() 有多个重载，注意分辨传字符串和字符串数组的区别。
+            process.getOutputStream().close();
 
-                比如:
-                Runtime.getRuntime().exec("ls");
-                Runtime.getRuntime().exec("bash -c ls");
-                Runtime.getRuntime().exec(new String[]{ "bash","-c","ls" });
+            final String OUTPUT_STREAM_NAME = "OUTPUT";
+            inputStream = process.getInputStream();
+            outputStreamReceiver = new StreamReceiver(inputStream, OUTPUT_STREAM_NAME,charsetName);
+            outputStreamReceiver.start();
 
-                效果是一样的。
+            final String ERROR_STREAM_NAME = "ERROR";
+            errorStream = process.getErrorStream();
+            errorStreamReceiver = new StreamReceiver(errorStream,ERROR_STREAM_NAME,charsetName);
+            errorStreamReceiver.start();
 
-                但是主要的区别在于，字符串形式，不支持解析& | 特殊字符。
+            Callable<Integer> call = new Callable<Integer>() {
+                @Override
+                public Integer call() throws Exception {
+                    process.waitFor();
+                    return process.exitValue();
+                }
+            };
 
-                比如
-                Runtime.getRuntime().exec("echo hello && echo world");  //输出  hello && echo world。 跟在终端命令行执行的结果不一样
-
-                使用字符串数组的形式，Runtime.getRuntime().exec(new String[]{ "bash","-c","echo hello && echo world" });
-                输出:
-                hello
-                world
-
-                字符串形式下Runtime.getRuntime().exec执行命令的时候无法解释&等特殊字符的本质是execvp特殊符号。
-                而之所以数组情况能成是因为execvp调用了 /bin/bash ，/bin/bash 解释了 & , | 和execvp没关系。
-
-                所以，为了更广泛的支持命令，这里使用数组的形式。
-                 */
-                process = Runtime.getRuntime().exec(new String[]{ "cmd.exe","/c",command });
-                //Windows终端默认的字符编码是GBK，可以执行System.getenv()查看。
-                charsetName = "GBK";
+            executeFuture = processPool.submit(call);
+            int exitCode = 0;
+            if (timeout <= 0) {
+                exitCode = executeFuture.get();
             } else {
-                process = Runtime.getRuntime().exec(new String[]{ "bash", "-c", command });
-                //Linux终端默认的字符编码是UTF-8，可以通过执行env命令查看。
-                charsetName = "UTF-8";
+                exitCode = executeFuture.get(timeout, TimeUnit.MILLISECONDS);
             }
+            return new ExecuteResult(exitCode, outputStreamReceiver.getContent() + errorStreamReceiver.getContent());
 
-            ProgressStreamCallable streamGrabber = new ProgressStreamCallable(process, charsetName);
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            Future<ExecuteResult> processFuture = executor.submit(streamGrabber);
-            executor.shutdown();
-
-            ExecuteResult executeResult = null;
-            if(timeout <= 0){
-                executeResult = processFuture.get();
-            } else {
-                executeResult = processFuture.get(timeout, TimeUnit.MILLISECONDS);
-            }
-            logger.debug("exec finished. command result is:" + executeResult + ",it means " +
-                    (executeResult.getExitCode() == ExecuteResult.ExitCode.SUCCESS ? "success" : "fail"));
-
-            return executeResult;
-        } catch (TimeoutException e) {
-            logger.error("exec timeout. command:" + command + ",timeout:" + timeout + ",exception message:" + e.getMessage(),e);
-            return new ExecuteResult(ExecuteResult.ExitCode.TIME_OUT, null);
-        } catch (Throwable e) {
-            logger.error("exec error. command:" + command + ",timeout:" + timeout + ",exception message:" + e.getMessage(),e);
-            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, "exception message:" + e.getMessage());
+        } catch (IOException e) {
+            logger.error("The command {" + command + "} execute failed,exception message:" + e.getMessage(),e);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+        } catch (TimeoutException  e) {
+            logger.error("The command {"  + command + "} timeout. " + e.getMessage(),e);
+            return new ExecuteResult(ExecuteResult.ExitCode.TIMEOUT, null);
+        } catch (ExecutionException e) {
+            logger.error( "The command {" + command + "} did not complete due to an execution error.", e);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+        } catch (InterruptedException e) {
+            logger.error( "The command {" + command + "} did not complete due to an interrupted error.", e);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
+        } catch (Exception e) {
+            logger.error( "The command {" + command + "} did not complete due to an error.", e);
+            return new ExecuteResult(ExecuteResult.ExitCode.FAIL, null);
         } finally {
-            if (process != null) {
+            if(executeFuture != null) {
+                try {
+                    executeFuture.cancel(true);
+                } catch (Exception e) {
+                }
+            }
+            if(inputStream != null) {
+                //关闭流
+                closeQuietly(inputStream);
+                if(outputStreamReceiver != null && !outputStreamReceiver.isInterrupted()) {
+                    //中断线程
+                    outputStreamReceiver.interrupt();
+                }
+            }
+
+            if(errorStream != null) {
+                closeQuietly(errorStream);
+                if(errorStreamReceiver != null && !errorStreamReceiver.isInterrupted()) {
+                    errorStreamReceiver.interrupt();
+                }
+            }
+
+            if(process != null) {
                 process.destroy();
             }
+        }
+    }
+
+    private static void closeQuietly(Closeable closeable) {
+        try {
+            if (closeable != null) {
+                closeable.close();
+            }
+        } catch (IOException e) {
+            logger.error("an exception has appeared when invoke close method,exception message:{}", e.getMessage());
         }
     }
 }
